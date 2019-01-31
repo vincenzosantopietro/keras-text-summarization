@@ -1,13 +1,19 @@
 from __future__ import print_function
 import pickle
 import pandas as pd
+from keras.callbacks import ModelCheckpoint
 from sklearn.model_selection import train_test_split
 from keras_text_summarization.library.utility.plot_utils import plot_and_save_history
 from keras_text_summarization.library.seq2seq import Seq2SeqGloVeSummarizer
 from keras_text_summarization.library.applications.cnn_news_loader import load_data, fit_text, cleantext, parsetext
 import numpy as np
+from keras import backend as K
 
 LOAD_EXISTING_WEIGHTS = False
+NUM_THREADS = 32
+
+K.set_session(K.tf.Session(config=K.tf.ConfigProto(intra_op_parallelism_threads=NUM_THREADS, inter_op_parallelism_threads=NUM_THREADS)))
+
 
 data_categories = ["training", "validation", "test"]
 data = {"articles": [], "summaries": []}
@@ -72,6 +78,7 @@ def main():
     print('testing size: ', len(Xtest))
 
     print('start fitting ...')
+
     history = summarizer.fit(Xtrain, Ytrain, Xtest, Ytest, epochs=20, batch_size=16)
 
     history_plot_file_path = report_dir_path + '/' + Seq2SeqGloVeSummarizer.model_name + '-history.png'
