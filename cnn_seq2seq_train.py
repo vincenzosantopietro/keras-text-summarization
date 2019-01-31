@@ -4,13 +4,13 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from keras_text_summarization.library.utility.plot_utils import plot_and_save_history
 from keras_text_summarization.library.seq2seq import Seq2SeqGloVeSummarizer
-from keras_text_summarization.library.applications.deepmind_news_loader import load_data,fit_text,cleantext,parsetext
+from keras_text_summarization.library.applications.cnn_news_loader import load_data, fit_text, cleantext, parsetext
 import numpy as np
 
 LOAD_EXISTING_WEIGHTS = False
 
 data_categories = ["training", "validation", "test"]
-data={"articles":[],"summaries":[]}
+data = {"articles": [], "summaries": []}
 
 
 def main():
@@ -19,7 +19,6 @@ def main():
     very_large_data_dir_path = './very_large_data'
     report_dir_path = './reports'
     model_dir_path = './models'
-
 
     '''filenames = load_data(data_dir_path, data_categories[0])
     print(len(filenames))
@@ -47,7 +46,7 @@ def main():
     with open('deepmind_news_training.pickle', 'rb') as handle:
         data = pickle.load(handle)
 
-    #exit(0)
+    # exit(0)
     # print('loading csv file ...')
     # df = pd.read_csv(data_dir_path + "/fake_or_real_news.csv")
 
@@ -84,4 +83,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
