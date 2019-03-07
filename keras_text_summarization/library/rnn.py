@@ -1,14 +1,18 @@
 from __future__ import print_function
 
 from keras.models import Model, Sequential
-from keras.layers import Embedding, Dense, Input, RepeatVector, TimeDistributed, concatenate, Merge, add, Dropout
+from keras.layers import Embedding, Dense, Input, RepeatVector, TimeDistributed, concatenate, add, Dropout, \
+    Bidirectional, Flatten, Activation, Permute, merge, GRU, regularizers, BatchNormalization, GlobalMaxPool1D, Conv2D, \
+    Conv1D, MaxPool1D, Concatenate, AlphaDropout
 from keras.layers.recurrent import LSTM
+from keras.optimizers import SGD, Adam
 from keras.preprocessing.sequence import pad_sequences
-from keras.callbacks import ModelCheckpoint
+from keras.callbacks import ModelCheckpoint, TensorBoard
 import numpy as np
+from keras_text_summarization.library.custom_recurrent import AttentionDecoder
 import os
-
-HIDDEN_UNITS = 100
+from keras_self_attention import SeqSelfAttention
+HIDDEN_UNITS = 128
 DEFAULT_BATCH_SIZE = 64
 VERBOSE = 1
 DEFAULT_EPOCHS = 10
@@ -416,16 +420,15 @@ class RecursiveRNN2(object):
         self.version = 0
         if 'version' in config:
             self.version = config['version']
-
         # article input model
         inputs1 = Input(shape=(self.max_input_seq_length,))
         article1 = Embedding(self.num_input_tokens, 128)(inputs1)
-        article2 = Dropout(0.3)(article1)
+        article2 = Dropout(0.6)(article1)
 
         # summary input model
         inputs2 = Input(shape=(min(self.num_target_tokens, RecursiveRNN2.MAX_DECODER_SEQ_LENGTH), ))
         summ1 = Embedding(self.num_target_tokens, 128)(inputs2)
-        summ2 = Dropout(0.3)(summ1)
+        summ2 = Dropout(0.6)(summ1)
         summ3 = LSTM(128)(summ2)
         summ4 = RepeatVector(self.max_input_seq_length)(summ3)
 
@@ -435,7 +438,8 @@ class RecursiveRNN2(object):
         outputs = Dense(self.num_target_tokens, activation='softmax')(decoder2)
         # tie it together [article, summary] [word]
         model = Model(inputs=[inputs1, inputs2], outputs=outputs)
-        model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+        optimizer = Adam(lr=0.0001)
+        model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['accuracy'])
 
         print(model.summary())
 
@@ -540,6 +544,7 @@ class RecursiveRNN2(object):
         config_file_path = RecursiveRNN2.get_config_file_path(model_dir_path)
         weight_file_path = RecursiveRNN2.get_weight_file_path(model_dir_path)
         checkpoint = ModelCheckpoint(weight_file_path)
+        tensorboard = TensorBoard(log_dir='./logdir',batch_size=batch_size)
         np.save(config_file_path, self.config)
         architecture_file_path = RecursiveRNN2.get_architecture_file_path(model_dir_path)
         open(architecture_file_path, 'w').write(self.model.to_json())
@@ -561,7 +566,7 @@ class RecursiveRNN2(object):
         history = self.model.fit_generator(generator=train_gen, steps_per_epoch=train_num_batches,
                                            epochs=epochs,
                                            verbose=VERBOSE, validation_data=test_gen, validation_steps=test_num_batches,
-                                           callbacks=[checkpoint])
+                                           callbacks=[checkpoint,tensorboard])
         self.model.save_weights(weight_file_path)
         return history
 
@@ -599,6 +604,7 @@ class RecursiveRNN2(object):
 
 
 class RecursiveRNN3(object):
+
     model_name = 'recursive-rnn-3'
     """
     In this third alternative, the Encoder generates a context vector representation of the source document.
@@ -611,7 +617,7 @@ class RecursiveRNN3(object):
     maximum length or end-of-sequence token is generated.
     """
 
-    def __init__(self, config):
+    def __init__(self, config,embedding_matrices=None):
         self.num_input_tokens = config['num_input_tokens']
         self.max_input_seq_length = config['max_input_seq_length']
         self.num_target_tokens = config['num_target_tokens']
@@ -626,23 +632,52 @@ class RecursiveRNN3(object):
         if 'version' in config:
             self.version = config['version']
 
+
+
         # article input model
         inputs1 = Input(shape=(self.max_input_seq_length,))
-        article1 = Embedding(self.num_input_tokens, 128)(inputs1)
-        article2 = LSTM(128)(article1)
-        article3 = RepeatVector(128)(article2)
+        if embedding_matrices is not None:
+            x = Embedding(self.num_input_tokens, 100, weights=[embedding_matrices[0]],trainable=True)(inputs1)
+        else:
+            x = Embedding(self.num_input_tokens, 100)(inputs1)
+        num_filters = [256, 256, 256, 256]
+        kernel_size = [10, 7, 5, 3]
+        #kernel_size = [5, 3, 2, 1]
+        conv_out = []
+        for i, filters in enumerate(num_filters):
+            c = Conv1D(filters, kernel_size=kernel_size[i], activation='tanh')(x)
+            n = BatchNormalization()(c)
+            p = GlobalMaxPool1D()(n)
+            conv_out.append(p)
+        x = Concatenate()(conv_out)
+        x = Dropout(0.1)(x)
+
         # summary input model
         inputs2 = Input(shape=(self.max_target_seq_length,))
-        summ1 = Embedding(self.num_target_tokens, 128)(inputs2)
-        summ2 = LSTM(128)(summ1)
-        summ3 = RepeatVector(128)(summ2)
+        if embedding_matrices is not None:
+            y = Embedding(self.num_target_tokens, 100, weights=[embedding_matrices[1]],trainable=True)(inputs2)
+        else:
+            y = Embedding(self.num_target_tokens, 100)(inputs2)
+        conv_out = []
+        for i, filters in enumerate(num_filters):
+            c = Conv1D(filters, kernel_size=kernel_size[i], activation='tanh')(y)
+            n = BatchNormalization()(c)
+            p = GlobalMaxPool1D()(n)
+            conv_out.append(p)
+        y = Concatenate()(conv_out)
+        y = Dropout(0.1)(y)
+
         # decoder model
-        decoder1 = concatenate([article3, summ3])
-        decoder2 = LSTM(128)(decoder1)
-        outputs = Dense(self.num_target_tokens, activation='softmax')(decoder2)
+        decoder1 = concatenate([x, y])
+        decoder1 = RepeatVector(HIDDEN_UNITS)(decoder1)
+        #decoder1 = SeqSelfAttention(attention_activation='softmax',attention_type='multiplicative')(decoder1)
+        decoder2 = AttentionDecoder(HIDDEN_UNITS,return_sequences=False,output_dim=128)(decoder1)
+        #outputs = SeqSelfAttention(attention_activation='sigmoid')(decoder2)
+        outputs = Dense(self.num_target_tokens, activation='softmax',kernel_initializer='lecun_normal')(decoder2)
         # tie it together [article, summary] [word]
         model = Model(inputs=[inputs1, inputs2], outputs=outputs)
-        model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+        optimizer = Adam()
+        model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['accuracy'])
 
         print(model.summary())
 
@@ -747,6 +782,7 @@ class RecursiveRNN3(object):
         config_file_path = RecursiveRNN2.get_config_file_path(model_dir_path)
         weight_file_path = RecursiveRNN2.get_weight_file_path(model_dir_path)
         checkpoint = ModelCheckpoint(weight_file_path)
+        tensorboard = TensorBoard(log_dir='logdir',batch_size=batch_size)
         np.save(config_file_path, self.config)
         architecture_file_path = RecursiveRNN2.get_architecture_file_path(model_dir_path)
         open(architecture_file_path, 'w').write(self.model.to_json())
@@ -768,7 +804,7 @@ class RecursiveRNN3(object):
         history = self.model.fit_generator(generator=train_gen, steps_per_epoch=train_num_batches,
                                            epochs=epochs,
                                            verbose=VERBOSE, validation_data=test_gen, validation_steps=test_num_batches,
-                                           callbacks=[checkpoint])
+                                           callbacks=[checkpoint, tensorboard])
         self.model.save_weights(weight_file_path)
         return history
 

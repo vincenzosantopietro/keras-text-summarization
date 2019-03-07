@@ -1,0 +1,154 @@
+from __future__ import print_function
+
+import glob
+import re
+import os
+import pickle
+from keras.preprocessing.text import *
+from keras.preprocessing.sequence import pad_sequences
+import pandas as pd
+from sklearn.model_selection import train_test_split
+import numpy as np
+from string import punctuation
+from summarizer import Summarizer
+
+LOAD_DUMPS = False
+NUM_WORDS = 5000
+
+def cleantext(text):
+    text = re.sub(r"what's", "what is ", text)
+    text = re.sub(r"it's", "it is ", text)
+    text = re.sub(r"\'ve", " have ", text)
+    text = re.sub(r"i'm", "i am ", text)
+    text = re.sub(r"\'re", " are ", text)
+    text = re.sub(r"n't", " not ", text)
+    text = re.sub(r"\'d", " would ", text)
+    text = re.sub(r"\'s", "s", text)
+    text = re.sub(r"\'ll", " will ", text)
+    text = re.sub(r"can't", " cannot ", text)
+    text = re.sub(r" e g ", " eg ", text)
+    text = re.sub(r"e-mail", "email", text)
+    text = re.sub(r"9\\/11", " 911 ", text)
+    text = re.sub(r" u.s", " american ", text)
+    text = re.sub(r" u.n", " united nations ", text)
+    text = re.sub(r"\n", " ", text)
+    text = re.sub(r":", " ", text)
+    text = re.sub(r"-", " ", text)
+    text = re.sub(r"\_", " ", text)
+    text = re.sub(r"\d+", " ", text)
+    text = re.sub(r"[<>$#@%&*!~?%{}().,]", " ", text)
+    return text
+
+
+def preprocess_text(X, Y, lower=True):
+    if len(X) != len(Y):
+        print('Error: X and Y have diffrent sizes')
+        exit(-1)
+    for i in range(len(X)):
+        x_i = X[i]
+        y_i = Y[i]
+        if lower == True:
+            X[i] = cleantext(str(x_i).lower().strip(punctuation))
+            Y[i] = cleantext(str(y_i).lower().strip(punctuation))
+        else:
+            X[i] = cleantext(str(x_i).strip(punctuation))
+            Y[i] = cleantext(str(y_i).strip(punctuation))
+    return X, Y
+
+def import_bbc_news_data():
+    articles = glob.glob('BBC_1/Articles/*')
+    #summaries = glob.glob('BBC_1/Summaries/*')
+
+    documents = []
+    sums = []
+    titles = []
+    for folder in articles:
+        docs = glob.glob(folder + '/*')
+        # summaries path from doc's
+        sumpath = folder.split(sep='/')
+        sumpath = sumpath[0] + '/Summaries/' + sumpath[2]
+
+        sumpaths = glob.glob(sumpath + '/*')
+        for i, article in enumerate(docs):
+            try:
+                with open(article, 'r') as fp:
+                    d = fp.readlines()
+                    with open(sumpaths[i], 'r') as sp:
+                        s = sp.read()
+
+                        documents.append(''.join(d[1:]))
+                        sums.append(s)
+                        titles.append(d[0])
+
+            except Exception as e:
+                print('{}'.format(i))
+                continue
+
+    X = np.array(documents)
+    Y = np.array(titles)
+    return X, Y
+
+def main():
+    data_dir_path = './demo/data'
+
+    if LOAD_DUMPS == False:
+
+        df = pd.read_csv(data_dir_path + "/fake_or_real_news.csv").dropna()
+        X = df['text']
+        Y = df.title
+        print('{} {}'.format(X.shape, Y.shape))
+        X2,Y2 = import_bbc_news_data()
+
+        X = np.concatenate((X,X2),axis=0)
+        Y = np.concatenate((Y,Y2),axis=0)
+        print('{} {}'.format(X.shape,Y.shape))
+
+        xtrain, ytrain = preprocess_text(X, Y)
+
+        print('Dataset is composed of ({}) samples'.format(len(xtrain)))
+
+        tokenizer = Tokenizer(lower=True)
+        tokenizer.fit_on_texts(xtrain)# assuming docs cover all tokens
+
+        Xseq = tokenizer.texts_to_sequences(xtrain)
+        Yseq = tokenizer.texts_to_sequences(ytrain)
+        input_tokens = 100
+        target_tokens = 30
+        Xf = pad_sequences(Xseq, maxlen=input_tokens)
+        Yf = pad_sequences(Yseq, maxlen=target_tokens)
+
+        xtrain.dump('xtrain.h5')
+        ytrain.dump('ytrain.h5')
+
+        embedding_dim = 100
+        word_index = tokenizer.word_index
+
+        # Preparing GloVe
+        embeddings_index = {}
+        f = open(os.path.join('demo/very_large_data/glove2.6B.{}d.txt'.format(embedding_dim)))
+        for line in f:
+            values = line.split()
+            word = values[0]
+            coefs = np.asarray(values[1:], dtype='float32')
+            embeddings_index[word] = coefs
+        f.close()
+
+        found = 0
+        embedding_matrix = np.zeros((len(word_index)+1, embedding_dim), dtype='float32')
+        for word, i in word_index.items():
+            embedding_vector = embeddings_index.get(word)
+            if embedding_vector is not None:
+                # Words not found in glove will be zeros
+                embedding_matrix[i] = embedding_vector
+                found = found+1
+        print('Embedding Matrix: {}'.format(embedding_matrix.shape))
+        print('Found {}% Embeddings'.format(found/len(word_index)))
+
+        summarizer = Summarizer(input_size=embedding_dim,
+                                input_tokens=input_tokens,target_tokens=target_tokens,num_tokens=embedding_matrix.shape[0])
+        summarizer.fit([Xf,Yf],Yf,batch_size=128,epochs=1000)
+    exit(0)
+
+
+if __name__ == '__main__':
+    main()

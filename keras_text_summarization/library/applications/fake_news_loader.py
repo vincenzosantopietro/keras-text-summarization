@@ -1,9 +1,10 @@
 from collections import Counter
+import re
 
-MAX_INPUT_SEQ_LENGTH = 500
-MAX_TARGET_SEQ_LENGTH = 50
-MAX_INPUT_VOCAB_SIZE = 5000
-MAX_TARGET_VOCAB_SIZE = 2000
+MAX_INPUT_SEQ_LENGTH = 50
+MAX_TARGET_SEQ_LENGTH = 20
+MAX_INPUT_VOCAB_SIZE = 9000
+MAX_TARGET_VOCAB_SIZE = 5000
 
 
 def fit_text(X, Y, input_seq_max_length=None, target_seq_max_length=None):
@@ -27,7 +28,7 @@ def fit_text(X, Y, input_seq_max_length=None, target_seq_max_length=None):
         max_input_seq_length = max(max_input_seq_length, seq_length)
 
     for line in Y:
-        line2 = 'START ' + line.lower() + ' END'
+        line2 = 'START ' + str(line).lower() + ' END'
         text = [word for word in line2.split(' ')]
         seq_length = len(text)
         if seq_length > target_seq_max_length:
@@ -65,3 +66,43 @@ def fit_text(X, Y, input_seq_max_length=None, target_seq_max_length=None):
     config['max_target_seq_length'] = max_target_seq_length
 
     return config
+
+
+def load_data(dire, category):
+    filenames = []
+    """category refers to either training, test or validation"""
+    for dirs, subdr, files in os.walk(dire +'/'+ category):
+        filenames = files
+    return filenames
+
+def parsetext(dire, category, filename):
+    with open("%s/%s" % (dire + category, filename), 'r', encoding="Latin-1") as readin:
+        #print("file read successfully")
+        text = readin.read()
+    return text.lower()
+
+
+def cleantext(text):
+    text = re.sub(r"what's", "what is ", text)
+    text = re.sub(r"it's", "it is ", text)
+    text = re.sub(r"\'ve", " have ", text)
+    text = re.sub(r"i'm", "i am ", text)
+    text = re.sub(r"\'re", " are ", text)
+    text = re.sub(r"n't", " not ", text)
+    text = re.sub(r"\'d", " would ", text)
+    text = re.sub(r"\'s", "s", text)
+    text = re.sub(r"\'ll", " will ", text)
+    text = re.sub(r"can't", " cannot ", text)
+    text = re.sub(r" e g ", " eg ", text)
+    text = re.sub(r"e-mail", "email", text)
+    text = re.sub(r"9\\/11", " 911 ", text)
+    text = re.sub(r" u.s", " american ", text)
+    text = re.sub(r" u.n", " united nations ", text)
+    text = re.sub(r"\n", " ", text)
+    text = re.sub(r":", " ", text)
+    text = re.sub(r"-", " ", text)
+    text = re.sub(r"\_", " ", text)
+    text = re.sub(r"\d+", " ", text)
+    text = re.sub(r"[<>$#@%&*!~?%{}().,]", " ", text)
+    return text
+

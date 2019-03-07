@@ -4,7 +4,7 @@ import sys
 import zipfile
 import numpy as np
 
-GLOVE_EMBEDDING_SIZE = 100
+GLOVE_EMBEDDING_SIZE = 300
 
 
 def reporthook(block_num, block_size, total_size):
